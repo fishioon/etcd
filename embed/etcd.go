@@ -204,6 +204,8 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		Debug:                      cfg.Debug,
 		ForceNewCluster:            cfg.ForceNewCluster,
 		EnableGRPCGateway:          cfg.EnableGRPCGateway,
+		EnableLeaseCheckpoint:      cfg.ExperimentalEnableLeaseCheckpoint,
+		CompactionBatchLimit:       cfg.ExperimentalCompactionBatchLimit,
 	}
 	print(e.cfg.logger, *cfg, srvcfg, memberInitialized)
 	if e.Server, err = etcdserver.NewServer(srvcfg); err != nil {
@@ -623,7 +625,7 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 			}
 		}
 		if (u.Scheme == "https" || u.Scheme == "unixs") && cfg.ClientTLSInfo.Empty() {
-			return nil, fmt.Errorf("TLS key/cert (--cert-file, --key-file) must be provided for client url %s with HTTPs scheme", u.String())
+			return nil, fmt.Errorf("TLS key/cert (--cert-file, --key-file) must be provided for client url %s with HTTPS scheme", u.String())
 		}
 
 		network := "tcp"
@@ -743,7 +745,7 @@ func (e *Etcd) serveClients() (err error) {
 		}))
 	}
 
-	// start client servers in a goroutine
+	// start client servers in each goroutine
 	for _, sctx := range e.sctxs {
 		go func(s *serveCtx) {
 			e.errHandler(s.serve(e.Server, &e.cfg.ClientTLSInfo, h, e.errHandler, gopts...))

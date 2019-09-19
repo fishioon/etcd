@@ -60,12 +60,17 @@ const (
 )
 
 var restoreChunkKeys = 10000 // non-const for testing
+var defaultCompactBatchLimit = 1000
 
 // ConsistentIndexGetter is an interface that wraps the Get method.
 // Consistent index is the offset of an entry in a consistent replicated log.
 type ConsistentIndexGetter interface {
 	// ConsistentIndex returns the consistent index of current executing entry.
 	ConsistentIndex() uint64
+}
+
+type StoreConfig struct {
+	CompactionBatchLimit int
 }
 
 type store struct {
@@ -75,6 +80,8 @@ type store struct {
 	// consistentIndex caches the "consistent_index" key's value. Accessed
 	// through atomics so must be 64-bit aligned.
 	consistentIndex uint64
+
+	cfg StoreConfig
 
 	// mu read locks for txns and write locks for non-txn store changes.
 	mu sync.RWMutex
@@ -108,8 +115,12 @@ type store struct {
 
 // NewStore returns a new store. It is useful to create a store inside
 // mvcc pkg. It should only be used for testing externally.
-func NewStore(lg *zap.Logger, b backend.Backend, le lease.Lessor, ig ConsistentIndexGetter) *store {
+func NewStore(lg *zap.Logger, b backend.Backend, le lease.Lessor, ig ConsistentIndexGetter, cfg StoreConfig) *store {
+	if cfg.CompactionBatchLimit == 0 {
+		cfg.CompactionBatchLimit = defaultCompactBatchLimit
+	}
 	s := &store{
+		cfg:     cfg,
 		b:       b,
 		ig:      ig,
 		kvindex: newTreeIndex(lg),
@@ -165,6 +176,7 @@ func (s *store) compactBarrier(ctx context.Context, ch chan struct{}) {
 }
 
 func (s *store) Hash() (hash uint32, revision int64, err error) {
+	// TODO: hash and revision could be inconsistent, one possible fix is to add s.revMu.RLock() at the beginning of function, which is costly
 	start := time.Now()
 
 	s.b.ForceCommit()
@@ -196,8 +208,8 @@ func (s *store) HashByRev(rev int64) (hash uint32, currentRev int64, compactRev 
 	keep := s.kvindex.Keep(rev)
 
 	tx := s.b.ReadTx()
-	tx.Lock()
-	defer tx.Unlock()
+	tx.RLock()
+	defer tx.RUnlock()
 	s.mu.RUnlock()
 
 	upper := revision{main: rev + 1}
@@ -344,16 +356,7 @@ func (s *store) Restore(b backend.Backend) error {
 }
 
 func (s *store) restore() error {
-	b := s.b
-	reportDbTotalSizeInBytesMu.Lock()
-	reportDbTotalSizeInBytes = func() float64 { return float64(b.Size()) }
-	reportDbTotalSizeInBytesMu.Unlock()
-	reportDbTotalSizeInBytesDebuggingMu.Lock()
-	reportDbTotalSizeInBytesDebugging = func() float64 { return float64(b.Size()) }
-	reportDbTotalSizeInBytesDebuggingMu.Unlock()
-	reportDbTotalSizeInUseInBytesMu.Lock()
-	reportDbTotalSizeInUseInBytes = func() float64 { return float64(b.SizeInUse()) }
-	reportDbTotalSizeInUseInBytesMu.Unlock()
+	s.setupMetricsReporter()
 
 	min, max := newRevBytes(), newRevBytes()
 	revToBytes(revision{main: 1}, min)
@@ -563,6 +566,36 @@ func (s *store) ConsistentIndex() uint64 {
 	v := binary.BigEndian.Uint64(vs[0])
 	atomic.StoreUint64(&s.consistentIndex, v)
 	return v
+}
+
+func (s *store) setupMetricsReporter() {
+	b := s.b
+	reportDbTotalSizeInBytesMu.Lock()
+	reportDbTotalSizeInBytes = func() float64 { return float64(b.Size()) }
+	reportDbTotalSizeInBytesMu.Unlock()
+	reportDbTotalSizeInBytesDebugMu.Lock()
+	reportDbTotalSizeInBytesDebug = func() float64 { return float64(b.Size()) }
+	reportDbTotalSizeInBytesDebugMu.Unlock()
+	reportDbTotalSizeInUseInBytesMu.Lock()
+	reportDbTotalSizeInUseInBytes = func() float64 { return float64(b.SizeInUse()) }
+	reportDbTotalSizeInUseInBytesMu.Unlock()
+	reportDbOpenReadTxNMu.Lock()
+	reportDbOpenReadTxN = func() float64 { return float64(b.OpenReadTxN()) }
+	reportDbOpenReadTxNMu.Unlock()
+	reportCurrentRevMu.Lock()
+	reportCurrentRev = func() float64 {
+		s.revMu.RLock()
+		defer s.revMu.RUnlock()
+		return float64(s.currentRev)
+	}
+	reportCurrentRevMu.Unlock()
+	reportCompactRevMu.Lock()
+	reportCompactRev = func() float64 {
+		s.revMu.RLock()
+		defer s.revMu.RUnlock()
+		return float64(s.compactMainRev)
+	}
+	reportCompactRevMu.Unlock()
 }
 
 // appendMarkTombstone appends tombstone mark to normal revision bytes.

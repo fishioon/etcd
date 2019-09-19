@@ -88,8 +88,8 @@ func TestV3StorageQuotaApply(t *testing.T) {
 		}
 	}
 
-	ctx, close := context.WithTimeout(context.TODO(), RequestWaitTimeout)
-	defer close()
+	ctx, cancel := context.WithTimeout(context.TODO(), RequestWaitTimeout)
+	defer cancel()
 
 	// small quota machine should reject put
 	if _, err := kvc0.Put(ctx, &pb.PutRequest{Key: key, Value: smallbuf}); err == nil {
@@ -159,7 +159,7 @@ func TestV3CorruptAlarm(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			if _, err := clus.Client(0).Put(context.TODO(), "k", "v"); err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 		}()
 	}
@@ -169,7 +169,7 @@ func TestV3CorruptAlarm(t *testing.T) {
 	clus.Members[0].Stop(t)
 	fp := filepath.Join(clus.Members[0].DataDir, "member", "snap", "db")
 	be := backend.NewDefaultBackend(fp)
-	s := mvcc.NewStore(zap.NewExample(), be, nil, &fakeConsistentIndex{13})
+	s := mvcc.NewStore(zap.NewExample(), be, nil, &fakeConsistentIndex{13}, mvcc.StoreConfig{})
 	// NOTE: cluster_proxy mode with namespacing won't set 'k', but namespace/'k'.
 	s.Put([]byte("abc"), []byte("def"), 0)
 	s.Put([]byte("xyz"), []byte("123"), 0)

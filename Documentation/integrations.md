@@ -1,4 +1,6 @@
-# Libraries and tools
+---
+title: Libraries and tools
+---
 
 **Tools**
 
@@ -16,6 +18,7 @@
 - [etcdsh](https://github.com/kamilhark/etcdsh) - A command line client with support of command history and tab completion. Supports v2
 - [etcdloadtest](https://github.com/sinsharat/etcdloadtest) - A command line load test client for etcd version 3.0 and above.
 - [lucas](https://github.com/ringtail/lucas) - A web-based key-value viewer for kubernetes etcd3.0+ cluster.
+- [etcd-manager](https://github.com/gtamas/etcdmanager) - A modern, efficient, multi-platform and free ETCD 3.x GUI & client tool. Available for Windows, Linux and Mac.
 
 **Go libraries**
 
@@ -54,6 +57,7 @@
 - [txaio-etcd](https://github.com/crossbario/txaio-etcd) - Asynchronous etcd v3-only client library for Twisted (today) and asyncio (future)
 - [dims/etcd3-gateway](https://github.com/dims/etcd3-gateway) - etcd v3 API library using the HTTP grpc gateway
 - [aioetcd3](https://github.com/gaopeiliang/aioetcd3) - (Python 3.6+) etcd v3 API for asyncio
+- [Revolution1/etcd3-py](https://github.com/Revolution1/etcd3-py) - (python2.7 and python3.5+) Python client for etcd v3, using gRPC-JSON-Gateway
 
 **Node libraries**
 

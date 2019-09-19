@@ -30,18 +30,19 @@ import (
 	"go.etcd.io/etcd/etcdserver"
 	"go.etcd.io/etcd/etcdserver/api/v3compactor"
 	"go.etcd.io/etcd/pkg/flags"
+	"go.etcd.io/etcd/pkg/logutil"
 	"go.etcd.io/etcd/pkg/netutil"
 	"go.etcd.io/etcd/pkg/srv"
 	"go.etcd.io/etcd/pkg/tlsutil"
 	"go.etcd.io/etcd/pkg/transport"
 	"go.etcd.io/etcd/pkg/types"
 
-	"github.com/ghodss/yaml"
 	bolt "go.etcd.io/bbolt"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -69,9 +70,8 @@ const (
 	// It's enabled by default.
 	DefaultStrictReconfigCheck = true
 	// DefaultEnableV2 is the default value for "--enable-v2" flag.
-	// v2 is enabled by default.
-	// TODO: disable v2 when deprecated.
-	DefaultEnableV2 = true
+	// v2 API is disabled by default.
+	DefaultEnableV2 = false
 
 	// maxElectionMs specifies the maximum value of election timeout.
 	// More details are listed in ../Documentation/tuning.md#time-parameters.
@@ -278,6 +278,9 @@ type Config struct {
 	ExperimentalEnableV2V3          string        `json:"experimental-enable-v2v3"`
 	// ExperimentalBackendFreelistType specifies the type of freelist that boltdb backend uses (array and map are supported types).
 	ExperimentalBackendFreelistType string `json:"experimental-backend-bbolt-freelist-type"`
+	// ExperimentalEnableLeaseCheckpoint enables primary lessor to persist lease remainingTTL to prevent indefinite auto-renewal of long lived leases.
+	ExperimentalEnableLeaseCheckpoint bool `json:"experimental-enable-lease-checkpoint"`
+	ExperimentalCompactionBatchLimit  int  `json:"experimental-compaction-batch-limit"`
 
 	// ForceNewCluster starts a new cluster even if previously started; unsafe.
 	ForceNewCluster bool `json:"force-new-cluster"`
@@ -290,11 +293,8 @@ type Config struct {
 	// Logger is logger options: "zap", "capnslog".
 	// WARN: "capnslog" is being deprecated in v3.5.
 	Logger string `json:"logger"`
-
-	// DeprecatedLogOutput is to be deprecated in v3.5.
-	// Just here for safe migration in v3.4.
-	DeprecatedLogOutput []string `json:"log-output"`
-
+	// LogLevel configures log level. Only supports debug, info, warn, error, panic, or fatal. Default 'info'.
+	LogLevel string `json:"log-level"`
 	// LogOutputs is either:
 	//  - "default" as os.Stderr,
 	//  - "stderr" as os.Stderr,
@@ -302,9 +302,6 @@ type Config struct {
 	//  - file path to append server logs to.
 	// It can be multiple when "Logger" is zap.
 	LogOutputs []string `json:"log-outputs"`
-
-	// Debug is true, to enable debug level logging.
-	Debug bool `json:"debug"`
 
 	// ZapLoggerBuilder is used to build the zap logger.
 	ZapLoggerBuilder func(*Config) error
@@ -328,6 +325,12 @@ type Config struct {
 
 	// TO BE DEPRECATED
 
+	// DeprecatedLogOutput is to be deprecated in v3.5.
+	// Just here for safe migration in v3.4.
+	DeprecatedLogOutput []string `json:"log-output"`
+	// Debug is true, to enable debug level logging.
+	// WARNING: to be deprecated in 3.5. Use "--log-level=debug" instead.
+	Debug bool `json:"debug"`
 	// LogPkgLevels is being deprecated in v3.5.
 	// Only valid if "logger" option is "capnslog".
 	// WARN: DO NOT USE THIS!
@@ -414,6 +417,7 @@ func NewConfig() *Config {
 		DeprecatedLogOutput: []string{DefaultLogOutput},
 		LogOutputs:          []string{DefaultLogOutput},
 		Debug:               false,
+		LogLevel:            logutil.DefaultLogLevel,
 		LogPkgLevels:        "",
 	}
 	cfg.InitialCluster = cfg.InitialClusterFromName(cfg.Name)
